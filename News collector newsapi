@@ -1,0 +1,138 @@
+"""
+환율 관련 뉴스 수집기 - NewsAPI 버전
+------------------------------------
+NewsAPI(https://newsapi.org)에서 금리/무역/지정학 관련 뉴스를 수집한다.
+
+사전 준비:
+    1) pip install requests
+    2) 아래 NEWSAPI_KEY에 발급받은 키를 직접 입력
+
+무료 플랜 제한:
+    - 하루 100 요청
+    - 기사 발행 후 24시간 지연 (실시간 X)
+    - 과거 1개월치만 검색 가능
+    상용 서비스에서 실시간성이 중요하면 유료 플랜이나
+    다른 소스(로이터/블룸버그 API, RSS)와 병행 권장.
+"""
+
+import time
+import hashlib
+import json
+from datetime import datetime, timezone
+from pathlib import Path
+
+import requests
+
+NEWSAPI_KEY = "8a69271b8fc9464cafc243ab84551436"
+BASE_URL = "https://newsapi.org/v2/everything"
+OUTPUT_PATH = Path("collected_news.jsonl")
+
+# ---------------------------------------------------------
+# 카테고리별 검색 쿼리
+# NewsAPI는 쿼리 단위로 결과가 나뉘므로, 카테고리별로 따로 검색해서
+# 애초에 태깅까지 같이 처리한다 (RSS 버전의 키워드 필터링과 동일 역할)
+# ---------------------------------------------------------
+CATEGORY_QUERIES = {
+    "금리": '(Fed OR FOMC OR "interest rate" OR "rate hike" OR "rate cut" OR 연준 OR 기준금리)',
+    "무역": '(tariff OR "trade war" OR "trade deal" OR 관세 OR 무역분쟁)',
+    "지정학": '(geopolitical OR sanctions OR war OR conflict OR 지정학 OR 제재)',
+    "환율": '("exchange rate" OR currency OR dollar OR yen OR won OR 환율)',
+}
+
+LANGUAGES = ["en", "ko"]  # 영문 + 한글 기사 둘 다 수집
+
+
+def make_id(url: str) -> str:
+    return hashlib.sha256(url.encode("utf-8")).hexdigest()[:16]
+
+
+def fetch_category(category: str, query: str, language: str) -> list[dict]:
+    """카테고리 하나, 언어 하나에 대해 NewsAPI 호출"""
+    params = {
+        "q": query,
+        "language": language,
+        "sortBy": "publishedAt",
+        "pageSize": 20,
+        "apiKey": NEWSAPI_KEY,
+    }
+
+    resp = requests.get(BASE_URL, params=params, timeout=10)
+
+    if resp.status_code != 200:
+        print(f"[{category}/{language}] 요청 실패: {resp.status_code} {resp.text[:200]}")
+        return []
+
+    data = resp.json()
+    articles = data.get("articles", [])
+
+    items = []
+    for a in articles:
+        url = a.get("url", "")
+        title = a.get("title", "")
+        if not url or not title:
+            continue
+
+        items.append({
+            "id": make_id(url),
+            "source": a.get("source", {}).get("name", "unknown"),
+            "title": title,
+            "summary": a.get("description") or "",
+            "content": a.get("content") or "",  # NewsAPI 무료 플랜은 일부만 제공됨
+            "url": url,
+            "published_at": a.get("publishedAt", ""),
+            "tags": [category],
+            "language": language,
+            "collected_at": datetime.now(timezone.utc).isoformat(),
+        })
+
+    return items
+
+
+def dedup_and_merge_tags(items: list[dict]) -> list[dict]:
+    """같은 기사가 여러 카테고리 쿼리에 걸리면 tags를 합쳐서 하나로 병합"""
+    merged: dict[str, dict] = {}
+    for item in items:
+        key = item["id"]
+        if key in merged:
+            existing_tags = set(merged[key]["tags"])
+            existing_tags.update(item["tags"])
+            merged[key]["tags"] = sorted(existing_tags)
+        else:
+            merged[key] = item
+    return list(merged.values())
+
+
+def save_jsonl(items: list[dict], path: Path) -> None:
+    with path.open("a", encoding="utf-8") as f:
+        for item in items:
+            f.write(json.dumps(item, ensure_ascii=False) + "\n")
+
+
+def collect_all() -> list[dict]:
+    if not NEWSAPI_KEY:
+        raise RuntimeError(
+            "환경변수 NEWSAPI_KEY가 설정되어 있지 않습니다. "
+            "터미널에서 export NEWSAPI_KEY='발급받은_키' 실행 후 다시 시도하세요."
+        )
+
+    all_items = []
+    for category, query in CATEGORY_QUERIES.items():
+        for lang in LANGUAGES:
+            items = fetch_category(category, query, lang)
+            print(f"[{category}/{lang}] {len(items)}건 수집")
+            all_items.extend(items)
+            time.sleep(0.5)  # 무료 플랜 rate limit 여유있게 대응
+
+    merged = dedup_and_merge_tags(all_items)
+    print(f"\n총 {len(merged)}건 (중복/태그 병합 후)")
+    return merged
+
+
+if __name__ == "__main__":
+    news = collect_all()
+    save_jsonl(news, OUTPUT_PATH)
+    print(f"저장 완료 -> {OUTPUT_PATH.resolve()}")
+
+    from collections import Counter
+    tag_counter = Counter(tag for item in news for tag in item["tags"])
+    print("\n카테고리별 건수:", dict(tag_counter))
