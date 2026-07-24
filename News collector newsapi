@@ -4,8 +4,10 @@
 NewsAPI(https://newsapi.org)에서 금리/무역/지정학 관련 뉴스를 수집한다.
 
 사전 준비:
-    1) pip install requests
-    2) 아래 NEWSAPI_KEY에 발급받은 키를 직접 입력
+    1) pip install requests python-dotenv
+    2) 이 파일과 같은 폴더에 .env 파일을 만들고 아래 한 줄을 적어둘 것
+       NEWSAPI_KEY=발급받은_키
+       (.env는 제출용 코드에 포함하지 말 것 -> .env.example만 포함)
 
 무료 플랜 제한:
     - 하루 100 요청
@@ -15,6 +17,7 @@ NewsAPI(https://newsapi.org)에서 금리/무역/지정학 관련 뉴스를 수�
     다른 소스(로이터/블룸버그 API, RSS)와 병행 권장.
 """
 
+import os
 import time
 import hashlib
 import json
@@ -22,8 +25,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import requests
+from dotenv import load_dotenv
 
-NEWSAPI_KEY = "8a69271b8fc9464cafc243ab84551436"
+load_dotenv()  # 같은 폴더의 .env 파일을 읽어서 os.environ에 값을 채워줌
+
+NEWSAPI_KEY = os.environ.get("NEWSAPI_KEY")
 BASE_URL = "https://newsapi.org/v2/everything"
 OUTPUT_PATH = Path("collected_news.jsonl")
 
@@ -111,8 +117,8 @@ def save_jsonl(items: list[dict], path: Path) -> None:
 def collect_all() -> list[dict]:
     if not NEWSAPI_KEY:
         raise RuntimeError(
-            "환경변수 NEWSAPI_KEY가 설정되어 있지 않습니다. "
-            "터미널에서 export NEWSAPI_KEY='발급받은_키' 실행 후 다시 시도하세요."
+            "NEWSAPI_KEY가 설정되어 있지 않습니다. "
+            ".env 파일에 NEWSAPI_KEY=발급받은_키 를 추가하세요."
         )
 
     all_items = []
