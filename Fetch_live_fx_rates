@@ -1,0 +1,152 @@
+# -*- coding: utf-8 -*-
+"""
+실시간 환율 수집 (USD/KRW, JPY/KRW, EUR/KRW) -> JSON 저장
+------------------------------------------------------------
+한국수출입은행 Open API로 당일 고시환율을 받아와서
+live_fx_rates.json에 저장하고, user_assets.json의 각 자산에
+현재 환율(current_rate)을 채워 넣는다.
+
+지금까지 만든 파이프라인이 전부 JSON 파일 기반이라, 이 스크립트도
+SQLite 없이 JSON만 사용하도록 맞췄다.
+
+사전 준비:
+    pip install requests python-dotenv
+    이 파일과 같은 폴더에 .env 파일을 만들고 아래 한 줄을 적어둘 것
+       EXIM_API_KEY=발급받은_키
+       (.env는 제출용 코드에 포함하지 말 것 -> .env.example만 포함)
+
+주의:
+    - 주말/공휴일에는 API가 자동으로 가장 최근 영업일 환율을 돌려준다.
+    - JPY는 100엔 단위로 고시되므로(cur_unit: "JPY(100)") 100으로 나눠서
+      1엔 기준 환율로 변환한다.
+"""
+
+import os
+import json
+from datetime import datetime
+from pathlib import Path
+
+import requests
+from dotenv import load_dotenv
+
+load_dotenv()  # 같은 폴더의 .env 파일을 읽어서 os.environ에 값을 채워줌
+
+EXIM_API_KEY = os.environ.get("EXIM_API_KEY")
+EXIM_URL = "https://oapi.koreaexim.go.kr/site/program/financial/exchangeJSON"
+
+ASSETS_PATH = Path("user_assets.json")
+OUTPUT_PATH = Path("live_fx_rates.json")
+
+# 수출입은행 API의 cur_unit 표기 -> 우리가 쓰는 통화쌍 이름 매핑
+CUR_UNIT_MAP = {
+    "USD": "USD/KRW",
+    "JPY(100)": "JPY/KRW",  # 100엔 단위 고시 -> 나중에 /100 처리
+    "EUR": "EUR/KRW",
+}
+
+
+def fetch_exim_rates() -> list[dict]:
+    """수출입은행 API를 호출해서 원본 응답(list)을 그대로 반환"""
+    today = datetime.now().strftime("%Y%m%d")
+    params = {
+        "authkey": EXIM_API_KEY,
+        "searchdate": today,
+        "data": "AP01",  # AP01 = 환율
+    }
+    resp = requests.get(EXIM_URL, params=params, timeout=5)
+    resp.raise_for_status()
+    return resp.json()
+
+
+def parse_target_rates(raw_items: list[dict]) -> dict:
+    """
+    원본 응답에서 USD/JPY/EUR만 골라 통화쌍 기준 환율 dict로 변환
+    반환 예: {"USD/KRW": 1392.5, "JPY/KRW": 9.31, "EUR/KRW": 1510.2}
+    """
+    rates = {}
+    for item in raw_items:
+        cur_unit = item.get("cur_unit", "")
+        if cur_unit not in CUR_UNIT_MAP:
+            continue
+
+        pair = CUR_UNIT_MAP[cur_unit]
+        rate_str = item.get("deal_bas_r", "").replace(",", "")
+        if not rate_str:
+            continue
+
+        rate = float(rate_str)
+        if cur_unit == "JPY(100)":
+            rate = rate / 100  # 100엔 -> 1엔 기준으로 환산
+
+        rates[pair] = round(rate, 4)
+
+    return rates
+
+
+def get_live_fx_rates() -> dict:
+    """실패 시 예외를 던지므로, 호출부에서 try/except로 폴백 처리할 것"""
+    raw = fetch_exim_rates()
+    rates = parse_target_rates(raw)
+
+    missing = set(CUR_UNIT_MAP.values()) - set(rates.keys())
+    if missing:
+        print(f"[경고] 다음 통화쌍은 API 응답에서 찾지 못했습니다: {missing}")
+
+    return rates
+
+
+def save_live_rates(rates: dict) -> None:
+    payload = {
+        "rates": rates,
+        "fetched_at": datetime.now().isoformat(),
+        "source": "한국수출입은행 Open API",
+    }
+    with OUTPUT_PATH.open("w", encoding="utf-8") as f:
+        json.dump(payload, f, ensure_ascii=False, indent=2)
+    print(f"저장 완료 -> {OUTPUT_PATH.resolve()}")
+
+
+def update_asset_profile_with_rates(rates: dict) -> None:
+    """user_assets.json의 각 자산에 current_rate 필드를 채워 넣는다"""
+    if not ASSETS_PATH.exists():
+        print(f"[안내] {ASSETS_PATH}가 없어서 자산 프로필 업데이트는 건너뜁니다.")
+        return
+
+    with ASSETS_PATH.open("r", encoding="utf-8") as f:
+        profile = json.load(f)
+
+    updated_count = 0
+    for asset in profile.get("assets", []):
+        pair = asset.get("currency_pair")
+        if pair in rates:
+            asset["current_rate"] = rates[pair]
+            updated_count += 1
+
+    with ASSETS_PATH.open("w", encoding="utf-8") as f:
+        json.dump(profile, f, ensure_ascii=False, indent=2)
+
+    print(f"user_assets.json의 자산 {updated_count}건에 current_rate 반영 완료")
+
+
+def main():
+    if not EXIM_API_KEY:
+        print("[오류] EXIM_API_KEY가 설정되어 있지 않습니다. "
+              ".env 파일에 EXIM_API_KEY=발급받은_키 를 추가하세요.")
+        return
+
+    try:
+        rates = get_live_fx_rates()
+    except Exception as e:
+        print(f"[오류] 환율 API 호출 실패: {e}")
+        return
+
+    print("실시간 환율:")
+    for pair, rate in rates.items():
+        print(f"  {pair}: {rate:,.2f}")
+
+    save_live_rates(rates)
+    update_asset_profile_with_rates(rates)
+
+
+if __name__ == "__main__":
+    main()
