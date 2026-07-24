@@ -42,6 +42,14 @@ MODEL = "llama-3.3-70b-versatile"
 TOP_N_NEWS_PER_ASSET = 3
 DEFAULT_IMPACT_WEIGHT = 0.5  # impact_weights.json에 없는 카테고리는 중립값
 
+# 자산의 통화쌍 -> 그 외화의 발행국. 뉴스의 country가 이 나라이거나
+# "한국"(원화 자체 이슈, 모든 통화쌍의 원화쪽 다리에 영향)이면 매칭 인정
+COUNTRY_OF_PAIR = {
+    "USD/KRW": "미국",
+    "JPY/KRW": "일본",
+    "EUR/KRW": "유럽",
+}
+
 
 # ============================================================
 # 1. 데이터 로드
@@ -71,23 +79,27 @@ def match_score(asset: dict, news: dict, impact_weights: dict) -> float:
     관련도 점수 = confidence × impact_weight × match_bonus
     - match_bonus 1.0 : 뉴스의 currency_pairs에 자산의 currency_pair가 정확히 포함
     - match_bonus 0.6 : 통화쌍은 안 겹치지만 카테고리가 자산의 sensitivity에 포함
+                        *그리고* 뉴스의 country가 그 자산의 외화 발행국이거나 "한국"인 경우만
+                        (예: 엔화 적금인데 country가 "미국"인 뉴스는 카테고리만 같아도 매칭 안 함)
     - 둘 다 아니면 매칭 안 됨 (score 계산 안 함)
     """
     confidence = news.get("confidence", 0.0)
     category = news.get("category")
+    country = news.get("country", "기타")
     weight_info = impact_weights.get(category, {})
     impact_weight = weight_info.get("weight", DEFAULT_IMPACT_WEIGHT)
 
     news_pairs = set(news.get("currency_pairs") or [])
     asset_pair = asset.get("currency_pair")
     asset_sensitivity = set(asset.get("sensitivity") or [])
+    asset_country = COUNTRY_OF_PAIR.get(asset_pair)
 
     if asset_pair and asset_pair in news_pairs:
         match_bonus = 1.0
-    elif category in asset_sensitivity:
+    elif category in asset_sensitivity and (country == asset_country or country == "한국"):
         match_bonus = 0.6
     else:
-        return 0.0  # 매칭 안 됨
+        return 0.0  # 매칭 안 됨 (카테고리는 같아도 관련 없는 나라 이슈)
 
     return round(confidence * impact_weight * match_bonus, 4)
 
@@ -113,7 +125,21 @@ SYSTEM_PROMPT = """당신은 사용자의 자산 상황을 고려해 환율 뉴�
 금융 어시스턴트입니다. 아래 뉴스들과 사용자 자산 정보를 보고, 이 뉴스가
 사용자의 자산에 어떤 의미인지 자연스러운 한국어 1~3문장으로 설명하세요.
 
-규칙:
+반드시 지켜야 할 방향성 규칙 (틀리기 쉬우니 특히 주의):
+1. "원화 약세(환율 상승, 예: 1,400원 -> 1,450원)"가 되면, 달러/엔화/유로 등
+   외화로 표시된 자산(예금, 주식)의 "원화 환산 가치"는 오히려 상승할 가능성이
+   있습니다. 반대로 "원화 강세(환율 하락)"가 되면 원화 환산 가치는 하락할
+   가능성이 있습니다. 이 방향을 절대 거꾸로 설명하지 마세요.
+2. 예금 상품의 "적용 금리(이자율)"는 그 예금이 표시된 통화를 발행한 국가의
+   기준금리에 영향을 받습니다. 예를 들어 엔화 적금의 금리는 일본은행 정책에
+   영향받는 것이지, 한국은행 기준금리가 엔화 적금의 이자율 자체를 바꾸지는
+   않습니다. 다만 한국은행 정책은 원/엔 환율을 통해 그 적금의 "원화 환산
+   평가금액"에는 영향을 줄 수 있습니다. 이자율에 대한 영향과 환산 평가금액에
+   대한 영향을 혼동해서 설명하지 마세요.
+3. 무역 분쟁/관세 뉴스처럼 특정국 통화 약세 요인이 있으면, 그 나라 통화
+   자산과 원화 자산에 미치는 영향 방향이 다를 수 있다는 점을 고려하세요.
+
+일반 규칙:
 - 반드시 주어진 뉴스 내용에 근거해서만 설명하세요. 뉴스에 없는 내용을 지어내지 마세요.
 - 투자 조언(사라, 팔아라)을 하지 말고, 사실과 그 의미만 담백하게 설명하세요.
 - "~일 수 있어요", "~에는 큰 변화가 없어요" 처럼 단정적이지 않은 톤을 쓰세요.
@@ -123,16 +149,17 @@ SYSTEM_PROMPT = """당신은 사용자의 자산 상황을 고려해 환율 뉴�
 
 def build_user_prompt(asset: dict, matched_news: list[dict]) -> str:
     news_block = "\n".join(
-        f"- [{n['category']}/{n['direction']}] {n['title']} : {n.get('reason', '')}"
+        f"- [{n['category']}/{n.get('country', '기타')}/{n['direction']}] {n['title']} : {n.get('reason', '')}"
         for n in matched_news
     )
+    asset_country = COUNTRY_OF_PAIR.get(asset.get("currency_pair"), "알수없음")
     return (
         f"[사용자 자산]\n"
         f"자산명: {asset['name']} ({asset['asset_type']})\n"
-        f"통화: {asset['currency_pair']}\n"
+        f"통화: {asset['currency_pair']} (외화 발행국: {asset_country})\n"
         f"평가금액: 약 {asset['amount_krw']:,}원\n"
         f"현재 환율: {asset.get('current_rate', '정보없음')}\n\n"
-        f"[관련 뉴스]\n{news_block}\n\n"
+        f"[관련 뉴스 (형식: [카테고리/관련국가/방향] 제목 : 근거)]\n{news_block}\n\n"
         f"위 자산에 위 뉴스들이 어떤 의미인지 설명해주세요."
     )
 
