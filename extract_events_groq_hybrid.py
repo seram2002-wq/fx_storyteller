@@ -148,11 +148,16 @@ SYSTEM_PROMPT = """당신은 환율/금리/무역/지정학 뉴스를 판별하�
 - 기사가 실제로 "환율 변동에 영향을 줄 수 있는" 금리 정책, 무역 분쟁/관세, 지정학적 리스크, 또는 직접적인 환율 뉴스인지 판단하세요.
 - 단순히 금액 표현에 "원", "달러" 같은 단어가 들어갔다고 해서 관련 있다고 판단하지 마세요.
 - 애매하면 is_relevant를 false로 하고 confidence를 낮게 주세요.
+- country는 이 뉴스가 다루는 정책/이벤트의 주체 국가입니다. 예: 미 연준 금리 발표 -> "미국",
+  한국은행 금리 발표 -> "한국", 일본은행 -> "일본", ECB -> "유럽". 특정 국가로 판단하기 어려우면
+  "기타"로 표시하세요. 이 필드는 이후 단계에서 "이 뉴스가 어느 통화에 영향을 주는지" 정확히
+  매칭하는 데 사용되므로 신중하게 판단하세요.
 
 출력 JSON 스키마 (이 형식만 출력):
 {
   "is_relevant": true or false,
   "category": "금리" | "무역" | "지정학" | "환율" | "기타",
+  "country": "한국" | "미국" | "일본" | "유럽" | "기타",
   "direction": "호재" | "악재" | "중립",
   "currency_pairs": ["USD/KRW", "JPY/KRW", ...],
   "confidence": 0.0 ~ 1.0,
@@ -212,6 +217,7 @@ def call_groq(api_key: str, article: dict, hinted_category: str,
     return {
         "is_relevant": True,  # 1단계에서 이미 관련 있다고 판정했으므로 안전하게 True 유지
         "category": hinted_category,
+        "country": "기타",
         "direction": "중립",
         "currency_pairs": [],
         "confidence": 0.0,
@@ -263,6 +269,7 @@ def process_all() -> None:
                 **article,
                 "is_relevant": False,
                 "category": "기타",
+                "country": "기타",
                 "direction": "중립",
                 "currency_pairs": [],
                 "confidence": 0.0,
