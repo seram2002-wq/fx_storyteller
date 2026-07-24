@@ -94,6 +94,10 @@ def fetch_fx_returns(ticker: str, start: str, end: str) -> pd.Series:
         return pd.Series(dtype=float)
 
     close = df["Close"]
+    if isinstance(close, pd.DataFrame):
+        # yfinance 최신 버전은 티커 1개여도 MultiIndex 컬럼(DataFrame)을 반환할 때가 있음
+        close = close.iloc[:, 0]
+
     pct_change = close.pct_change().abs() * 100  # 절대값 등락률(%)
     pct_change = pct_change.dropna()
     pct_change.index = pct_change.index.strftime("%Y-%m-%d")
