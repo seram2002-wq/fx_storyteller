@@ -1,0 +1,55 @@
+{
+  "user_id": "demo_user_01",
+  "user_name": "김서람",
+  "assets": [
+    {
+      "asset_id": "a1",
+      "name": "달러 예금",
+      "asset_type": "예금",
+      "currency_pair": "USD/KRW",
+      "amount_krw": 15000000,
+      "sensitivity": [
+        "금리",
+        "환율"
+      ],
+      "current_rate": 1469.4
+    },
+    {
+      "asset_id": "a2",
+      "name": "미국 주식 (S&P500 ETF)",
+      "asset_type": "주식",
+      "currency_pair": "USD/KRW",
+      "amount_krw": 8000000,
+      "sensitivity": [
+        "금리",
+        "무역",
+        "지정학"
+      ],
+      "current_rate": 1469.4
+    },
+    {
+      "asset_id": "a3",
+      "name": "엔화 적금",
+      "asset_type": "예금",
+      "currency_pair": "JPY/KRW",
+      "amount_krw": 3000000,
+      "sensitivity": [
+        "금리",
+        "환율"
+      ],
+      "current_rate": 8.9682
+    },
+    {
+      "asset_id": "a4",
+      "name": "유럽 주식 (유로존 ETF)",
+      "asset_type": "주식",
+      "currency_pair": "EUR/KRW",
+      "amount_krw": 2000000,
+      "sensitivity": [
+        "무역",
+        "지정학"
+      ],
+      "current_rate": 1672.03
+    }
+  ]
+}
