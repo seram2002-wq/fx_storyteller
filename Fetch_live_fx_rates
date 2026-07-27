@@ -46,16 +46,36 @@ CUR_UNIT_MAP = {
 
 
 def fetch_exim_rates() -> list[dict]:
-    """수출입은행 API를 호출해서 원본 응답(list)을 그대로 반환"""
-    today = datetime.now().strftime("%Y%m%d")
-    params = {
-        "authkey": EXIM_API_KEY,
-        "searchdate": today,
-        "data": "AP01",  # AP01 = 환율
-    }
-    resp = requests.get(EXIM_URL, params=params, timeout=5)
-    resp.raise_for_status()
-    return resp.json()
+    """
+    환율 API 호출
+    주말/공휴일이면 최대 7일 전까지 거슬러 올라가
+    가장 최근 영업일 환율 조회
+    """
+
+    date = datetime.now()
+    for _ in range(7):
+        searchdate = date.strftime("%Y%m%d")
+        params = {
+            "authkey": EXIM_API_KEY,
+            "searchdate": searchdate,
+            "data": "AP01",
+        }
+        resp = requests.get(
+            EXIM_URL,
+            params=params,
+            timeout=5
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        # 환율 데이터가 있으면 반환
+        if data:
+            print(f"환율 조회 날짜: {searchdate}")
+            return data
+
+        # 없으면 하루 전 조회
+        date -= timedelta(days=1)
+    raise Exception("최근 7일 동안 환율 데이터를 찾지 못했습니다.")
+
 
 
 def parse_target_rates(raw_items: list[dict]) -> dict:
