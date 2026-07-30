@@ -1,3 +1,8 @@
+"""
+터미널에서 `pip install streamlit pandas plotly` 명령어를 실행하세요.
+"""
+
+
 import streamlit as st
 
 from Modified_goal_new_summary import (
