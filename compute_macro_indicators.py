@@ -27,6 +27,8 @@ from pathlib import Path
 import pandas as pd
 import yfinance as yf
 
+from japan_bank_policy_rate import fetch_japan_policy_rate
+
 BASE_DIR = Path(__file__).resolve().parent
 MACRO_INPUT_PATH = BASE_DIR / "macro_data.json"
 OUTPUT_PATH = BASE_DIR / "processed_macro.json"
@@ -126,6 +128,47 @@ def latest_value_and_trend(s: pd.Series) -> dict:
     }
 
 
+def build_japan_policy_rate_summary(df: pd.DataFrame | None = None) -> dict:
+    """일본 정책금리 DataFrame을 최신값/변화량 요약으로 변환한다."""
+    if df is None:
+        return {"note": "일본 정책금리 데이터가 없습니다."}
+
+    work = df.copy()
+    if "date" in work.columns:
+        work["date"] = pd.to_datetime(work["date"], errors="coerce")
+        work = work.dropna(subset=["date"]).sort_values("date")
+    if work.empty:
+        return {"note": "일본 정책금리 데이터가 비어 있습니다."}
+
+    if "policy_rate" not in work.columns:
+        return {"note": "일본 정책금리 컬럼이 없습니다."}
+
+    values = pd.to_numeric(work["policy_rate"], errors="coerce").dropna()
+    if values.empty:
+        return {"note": "일본 정책금리 값이 없습니다."}
+
+    latest = float(values.iloc[-1])
+    prev = float(values.iloc[-2]) if len(values) >= 2 else None
+    change = round(latest - prev, 4) if prev is not None else None
+
+    if change is None:
+        trend = "데이터부족"
+    elif change > 0:
+        trend = "상승"
+    elif change < 0:
+        trend = "하락"
+    else:
+        trend = "보합"
+
+    return {
+        "latest": round(latest, 4),
+        "latest_date": work["date"].iloc[-1].strftime("%Y-%m-%d"),
+        "prev": round(prev, 4) if prev is not None else None,
+        "change": change,
+        "trend": trend,
+    }
+
+
 def build_weekly_feature_summary(csv_path: Path | None = None) -> dict:
     """weekly_fx_features.csv를 읽어 최근 주간 값과 변화량 요약으로 변환한다."""
     path = csv_path or BASE_DIR / "weekly_fx_features.csv"
@@ -186,7 +229,7 @@ def build_weekly_feature_summary(csv_path: Path | None = None) -> dict:
 # 2. 금리차 계산
 # ============================================================
 
-def compute_rate_diffs(macro: dict) -> dict:
+def compute_rate_diffs(macro: dict, weekly_csv_path: Path | None = None) -> dict:
     fred = macro.get("fred", {})
     ecos = macro.get("ecos", {})
 
@@ -196,6 +239,43 @@ def compute_rate_diffs(macro: dict) -> dict:
     for pair, rate_key in PAIR_TO_RATE_KEY.items():
         other_rate = series_to_df(fred.get(rate_key, []))
         if kr_rate.empty or other_rate.empty:
+            if weekly_csv_path is None:
+                weekly_csv_path = BASE_DIR / "weekly_fx_features.csv"
+
+            if weekly_csv_path.exists():
+                weekly_df = pd.read_csv(weekly_csv_path)
+                if "week_ending" in weekly_df.columns:
+                    weekly_df["week_ending"] = pd.to_datetime(weekly_df["week_ending"], errors="coerce")
+                    weekly_df = weekly_df.dropna(subset=["week_ending"]).sort_values("week_ending")
+                def last_numeric(series_name: str) -> float | None:
+                    if series_name not in weekly_df.columns:
+                        return None
+                    values = pd.to_numeric(weekly_df[series_name], errors="coerce").dropna()
+                    return float(values.iloc[-1]) if not values.empty else None
+
+                if pair == "USD/KRW":
+                    kr_latest = last_numeric("kr_policy_rate")
+                    other_latest = last_numeric("us_policy_rate")
+                elif pair == "JPY/KRW":
+                    kr_latest = last_numeric("kr_policy_rate")
+                    other_latest = last_numeric("jp_policy_rate")
+                else:
+                    kr_latest = last_numeric("kr_policy_rate")
+                    other_latest = last_numeric("ea_policy_rate")
+
+                if kr_latest is None or other_latest is None:
+                    result[pair] = {"latest_diff_pp": None, "note": "주간 FX 피처 데이터 부족"}
+                    continue
+
+                diff = round(float(kr_latest) - float(other_latest), 3)
+                result[pair] = {
+                    "한국_기준금리": float(kr_latest),
+                    f"{rate_key.split('_')[0]}_기준금리": float(other_latest),
+                    "금리차_pp": diff,
+                    "해석": "한국 금리가 더 높음" if diff > 0 else ("한국 금리가 더 낮음" if diff < 0 else "동일"),
+                }
+                continue
+
             result[pair] = {"latest_diff_pp": None, "note": "데이터 부족"}
             continue
 
@@ -275,7 +355,7 @@ def main():
         print_log.append(message)
 
     emit("=== 금리차 계산 ===")
-    rate_diffs = compute_rate_diffs(macro)
+    rate_diffs = compute_rate_diffs(macro, weekly_csv_path=BASE_DIR / "weekly_fx_features.csv")
     for pair, info in rate_diffs.items():
         emit(f"{pair}: {info}")
 
@@ -296,6 +376,12 @@ def main():
     for name, series in macro.get("market", {}).items():
         other_summary[name] = latest_value_and_trend(series_to_df(series))
 
+    other_summary["코스피_지수"] = latest_value_and_trend(
+        series_to_df(macro.get("kospi_index", []))
+    )
+    other_summary["KRX100_지수"] = latest_value_and_trend(
+        series_to_df(macro.get("krx100_index", []))
+    )
     other_summary["외국인_코스피_순매수"] = latest_value_and_trend(
         series_to_df(macro.get("foreign_netflow_kospi", []))
     )
@@ -317,12 +403,17 @@ def main():
                 continue
             emit(f"{name}: {info}")
 
+    japan_policy_rate_summary = build_japan_policy_rate_summary(fetch_japan_policy_rate())
+    emit("\n=== 일본 정책금리 요약 ===")
+    emit(f"일본_정책금리: {japan_policy_rate_summary}")
+
     processed = {
         "computed_at": datetime.now().isoformat(),
         "rate_diffs": rate_diffs,
         "fx_technical": fx_technical,
         "other_indicators": other_summary,
         "weekly_fx_features": weekly_feature_summary,
+        "japan_policy_rate": japan_policy_rate_summary,
         "print_log": print_log,
     }
 

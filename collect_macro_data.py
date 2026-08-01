@@ -2,7 +2,7 @@
 """
 매크로 지표 수집 -> macro_data.json
 
-주의사항: KRX 지표 위해서는 KRX 정보데이터시스템 계정 필요. .env에 KRX_ID/KRX_PW 환경변수로 추가.
+업데이트된 주의사항: KRX 지표 위해서는 KRX 정보데이터시스템 계정 필요. .env에 KRX_ID/KRX_PW 환경변수로 추가.
 
 
 수집 대상 (9개):
@@ -43,6 +43,7 @@ from pathlib import Path
 from pykrx import stock as pkstock
 from pykrx import bond as pkbond
 
+import pandas as pd
 import requests
 import yfinance as yf
 from dotenv import load_dotenv
@@ -230,6 +231,23 @@ MARKET_TICKERS = {
 }
 
 
+def _extract_close_series(df: pd.DataFrame) -> pd.Series:
+    """yfinance의 단일 컬럼/멀티인덱스 컬럼 DataFrame에서 Close 시리즈를 안전하게 추출한다."""
+    if df.empty:
+        raise ValueError("빈 데이터프레임")
+
+    if isinstance(df.columns, pd.MultiIndex):
+        close_frame = df.xs("Close", axis=1, level=0)
+        if isinstance(close_frame, pd.DataFrame) and not close_frame.empty:
+            return close_frame.iloc[:, 0]
+    else:
+        close = df.get("Close")
+        if close is not None:
+            return close
+
+    raise ValueError("Close 열을 찾을 수 없습니다")
+
+
 def collect_market_indicators() -> dict:
     start = START_DATE.strftime("%Y-%m-%d")
     end = (END_DATE + timedelta(days=1)).strftime("%Y-%m-%d")
@@ -240,9 +258,7 @@ def collect_market_indicators() -> dict:
             if df.empty:
                 result[name] = []
                 continue
-            close = df["Close"]
-            if hasattr(close, "iloc") and close.ndim == 2:
-                close = close.iloc[:, 0]
+            close = _extract_close_series(df)
             close.index = close.index.strftime("%Y-%m-%d")
             result[name] = [{"date": d, "value": round(float(v), 4)} for d, v in close.items()]
             print(f"[yfinance] {name} ({ticker}) - {len(result[name])}건 확보")
@@ -253,7 +269,49 @@ def collect_market_indicators() -> dict:
 
 
 # ============================================================
-# 3. pykrx - 외국인 코스피 순매수/순매도 (비공식, 선택 사항)
+# 3. 코스피 지수 수집 (yfinance fallback)
+# ============================================================
+
+def collect_kospi_index() -> list[dict]:
+    """코스피 지수를 yfinance로 수집해서 macro_data.json에 넣는다."""
+    start = START_DATE.strftime("%Y-%m-%d")
+    end = (END_DATE + timedelta(days=1)).strftime("%Y-%m-%d")
+    for ticker in ["^KS11", "069500.KS"]:
+        try:
+            df = yf.download(ticker, start=start, end=end, progress=False, auto_adjust=False)
+            if df.empty:
+                continue
+            close = _extract_close_series(df)
+            close.index = close.index.strftime("%Y-%m-%d")
+            out = [{"date": d, "value": round(float(v), 4)} for d, v in close.items()]
+            print(f"[yfinance] 코스피 지수 ({ticker}) - {len(out)}건 확보")
+            return out
+        except Exception as e:
+            print(f"[yfinance] 코스피 지수 ({ticker}) 실패: {e}")
+    return []
+
+
+def collect_krx100_index() -> list[dict]:
+    """KRX100 지수를 yfinance로 수집해서 macro_data.json에 넣는다."""
+    start = START_DATE.strftime("%Y-%m-%d")
+    end = (END_DATE + timedelta(days=1)).strftime("%Y-%m-%d")
+    for ticker in ["122630.KS", "069500.KS"]:
+        try:
+            df = yf.download(ticker, start=start, end=end, progress=False, auto_adjust=False)
+            if df.empty:
+                continue
+            close = _extract_close_series(df)
+            close.index = close.index.strftime("%Y-%m-%d")
+            out = [{"date": d, "value": round(float(v), 4)} for d, v in close.items()]
+            print(f"[yfinance] KRX100 지수 ({ticker}) - {len(out)}건 확보")
+            return out
+        except Exception as e:
+            print(f"[yfinance] KRX100 지수 ({ticker}) 실패: {e}")
+    return []
+
+
+# ============================================================
+# 4. pykrx - 외국인 코스피 순매수/순매도 (비공식, 선택 사항)
 # ============================================================
 
 def collect_foreign_netflow() -> list[dict]:
@@ -294,7 +352,7 @@ def collect_foreign_netflow() -> list[dict]:
 
 
 # ============================================================
-# 4. pytrends - Google Trends (비공식, 선택 사항, 우선순위 낮음)
+# 5. pytrends - Google Trends (비공식, 선택 사항, 우선순위 낮음)
 # ============================================================
 
 def collect_google_trends(keywords: list[str] = None) -> list[dict]:
@@ -338,6 +396,8 @@ def main():
         "fred": collect_fred_indicators(),
         "ecos": collect_ecos_indicators(),
         "market": collect_market_indicators(),
+        "kospi_index": collect_kospi_index(),
+        "krx100_index": collect_krx100_index(),
         "foreign_netflow_kospi": collect_foreign_netflow(),
         "google_trends": collect_google_trends(),
     }

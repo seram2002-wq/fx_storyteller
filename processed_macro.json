@@ -1,5 +1,5 @@
 {
-  "computed_at": "2026-08-01T12:44:45.387823",
+  "computed_at": "2026-08-01T14:16:11.270869",
   "rate_diffs": {
     "USD/KRW": {
       "한국_기준금리": 2.75,
@@ -143,6 +143,20 @@
       "change": 3.21,
       "trend": "상승"
     },
+    "코스피_지수": {
+      "latest": 6595.4502,
+      "latest_date": "2026-07-31",
+      "prev": 5593.5601,
+      "change": 1001.8901,
+      "trend": "상승"
+    },
+    "KRX100_지수": {
+      "latest": 110945.0,
+      "latest_date": "2026-07-31",
+      "prev": 75595.0,
+      "change": 35350.0,
+      "trend": "상승"
+    },
     "외국인_코스피_순매수": {
       "latest": 7240983259815.0,
       "latest_date": "2026-07-31",
@@ -151,10 +165,11 @@
       "trend": "상승"
     },
     "구글트렌드_환율관심도": {
-      "latest": null,
-      "prev": null,
-      "change": null,
-      "trend": "데이터없음"
+      "latest": 39.0,
+      "latest_date": "2026-07-26",
+      "prev": 36.0,
+      "change": 3.0,
+      "trend": "상승"
     }
   },
   "weekly_fx_features": {
@@ -305,8 +320,10 @@
     "VIX: {'latest': 15.99, 'latest_date': '2026-07-31', 'prev': 17.09, 'change': -1.1, 'trend': '하락'}",
     "미국국채10년물_야후: {'latest': 4.745, 'latest_date': '2026-07-31', 'prev': 4.663, 'change': 0.082, 'trend': '상승'}",
     "유가_WTI: {'latest': 86.8, 'latest_date': '2026-07-31', 'prev': 83.59, 'change': 3.21, 'trend': '상승'}",
+    "코스피_지수: {'latest': 6595.4502, 'latest_date': '2026-07-31', 'prev': 5593.5601, 'change': 1001.8901, 'trend': '상승'}",
+    "KRX100_지수: {'latest': 110945.0, 'latest_date': '2026-07-31', 'prev': 75595.0, 'change': 35350.0, 'trend': '상승'}",
     "외국인_코스피_순매수: {'latest': 7240983259815.0, 'latest_date': '2026-07-31', 'prev': 1328009849612.0, 'change': 5912973410203.0, 'trend': '상승'}",
-    "구글트렌드_환율관심도: {'latest': None, 'prev': None, 'change': None, 'trend': '데이터없음'}",
+    "구글트렌드_환율관심도: {'latest': 39.0, 'latest_date': '2026-07-26', 'prev': 36.0, 'change': 3.0, 'trend': '상승'}",
     "\n=== 주간 FX 피처 요약 ===",
     "latest_week: 2026-07-31",
     "usd_krw: {'latest': 1452.346221, 'prev': 1461.000264, 'change': -8.654043, 'trend': '하락'}",
