@@ -37,6 +37,8 @@ import os
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
+from pykrx import stock as pkstock
+from pykrx import bond as pkbond
 
 import requests
 import yfinance as yf
@@ -256,6 +258,10 @@ def collect_foreign_netflow() -> list[dict]:
     pykrx는 KRX 정보데이터시스템을 스크레이핑하는 비공식 무료 라이브러리.
     설치 안 되어 있거나 KRX 쪽 구조가 바뀌면 실패할 수 있어 try/except로 감싼다.
     """
+    if not os.environ.get("KRX_ID") or not os.environ.get("KRX_PW"):
+        print("[pykrx] KRX_ID/KRX_PW 환경 변수가 없어 외국인 순매수 지표는 건너뜀.")
+        return []
+
     try:
         from pykrx import stock
     except ImportError:
@@ -276,7 +282,11 @@ def collect_foreign_netflow() -> list[dict]:
         print(f"[pykrx] 외국인 코스피 순매수 - {len(out)}건 확보")
         return out
     except Exception as e:
-        print(f"[pykrx] 수집 실패: {e}")
+        message = str(e).strip()
+        if "KRX_ID" in message or "KRX_PW" in message or "로그인 실패" in message:
+            print("[pykrx] KRX 로그인 정보가 없어 외국인 순매수 지표는 건너뜀.")
+        else:
+            print(f"[pykrx] 수집 실패: {message}")
         return []
 
 
