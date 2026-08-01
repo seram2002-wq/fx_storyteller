@@ -122,14 +122,15 @@ def fred_search_series(keyword: str, limit: int = 10) -> list[dict]:
 FRED_SERIES = {
     "미국_기준금리": "FEDFUNDS",        # 확인됨: 미 연준 실효 기준금리(월간)
     "미국_국채10년물": "DGS10",          # 확인됨: 10년물 국채 수익률(일간) - yfinance(^TNX)와 대조 가능
-    "미국_CPI": "CPALTT01USM657N",       # TODO 확인: OECD MEI 기반 미국 CPI 전년동월비(%)
+    "미국_CPI": "CPIAUCSL",       # TODO 확인: OECD MEI 기반 미국 CPI 전년동월비(%)
     "미국_GDP성장률": "NAEXKP01USQ657S",  # TODO 확인: OECD MEI 기반 미국 실질GDP 성장률(분기)
     "일본_기준금리": "INTDSRJPM193N",    # TODO 확인: 일본 할인율. BOJ 정책금리(단기금리목표)와 다를 수 있음
-    "일본_CPI": "CPALTT01JPM657N",       # TODO 확인
+    "일본_CPI": "JPNPCPIPCPPPT",       # TODO 확인
     "일본_GDP성장률": "NAEXKP01JPQ657S", # TODO 확인
     "유럽_기준금리": "ECBDFR",           # TODO 확인: ECB 예금금리(Deposit Facility Rate)
-    "유럽_CPI": "CPALTT01EZM657N",       # TODO 확인: 유로존 CPI 전년동월비(%)
-    "유럽_GDP성장률": "NAEXKP01EZQ657S", # TODO 확인
+    "유럽_CPI": "CP0000EU272020M086NEST",       # TODO 확인: 유로존 CPI 전년동월비(%)
+    "유럽_GDP성장률": "CLVMNACSCAB1GQEU272020", # TODO 확인
+    "한국_GDP성장률": "NGDPRSAXDCKRQ"     # TODO 확인 
 }
 
 
@@ -183,8 +184,8 @@ ECOS_TARGETS = {
     "한국_기준금리": {"stat_code": "722Y001", "item_code1": "0101000", "period": "D"},
     "한국_CPI": {"stat_code": "901Y009", "item_code1": "0", "period": "M"},
     "한국_무역수지": {"stat_code": "301Y013", "item_code1": "*AA0", "period": "M"},  # TODO 확인: item_code 구조
-    "한국_GDP성장률": {"stat_code": "200Y102", "item_code1": "1400", "period": "Q"},  # TODO 확인: item_code 구조
-}
+    
+    }
 
 
 def collect_ecos_indicators() -> dict:

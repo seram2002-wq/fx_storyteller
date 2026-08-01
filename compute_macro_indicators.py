@@ -126,6 +126,62 @@ def latest_value_and_trend(s: pd.Series) -> dict:
     }
 
 
+def build_weekly_feature_summary(csv_path: Path | None = None) -> dict:
+    """weekly_fx_features.csv를 읽어 최근 주간 값과 변화량 요약으로 변환한다."""
+    path = csv_path or BASE_DIR / "weekly_fx_features.csv"
+    if not path.exists():
+        return {
+            "note": f"weekly_fx_features.csv가 없습니다. 먼저 fetch_weekly_fx_features.py로 생성하세요: {path.resolve()}"
+        }
+
+    df = pd.read_csv(path)
+    if df.empty:
+        return {"note": "weekly_fx_features.csv에 데이터가 없습니다."}
+
+    if "week_ending" in df.columns:
+        df = df.copy()
+        df["week_ending"] = pd.to_datetime(df["week_ending"], errors="coerce")
+        df = df.dropna(subset=["week_ending"]).sort_values("week_ending")
+    else:
+        df = df.copy().sort_index()
+
+    summary: dict = {
+        "latest_week": df["week_ending"].iloc[-1].strftime("%Y-%m-%d") if "week_ending" in df.columns and not df.empty else None,
+        "row_count": int(len(df)),
+    }
+
+    numeric_columns = [
+        col for col in df.columns if col != "week_ending" and pd.api.types.is_numeric_dtype(df[col])
+    ]
+
+    for col in numeric_columns:
+        values = pd.to_numeric(df[col], errors="coerce").dropna()
+        if values.empty:
+            continue
+
+        latest = float(values.iloc[-1])
+        prev = float(values.iloc[-2]) if len(values) >= 2 else None
+        change = round(latest - prev, 6) if prev is not None else None
+
+        if change is None:
+            trend = "데이터부족"
+        elif change > 0:
+            trend = "상승"
+        elif change < 0:
+            trend = "하락"
+        else:
+            trend = "보합"
+
+        summary[col] = {
+            "latest": round(latest, 6),
+            "prev": round(prev, 6) if prev is not None else None,
+            "change": change,
+            "trend": trend,
+        }
+
+    return summary
+
+
 # ============================================================
 # 2. 금리차 계산
 # ============================================================
@@ -212,19 +268,24 @@ def compute_fx_technical(pair: str, ticker: str) -> dict:
 
 def main():
     macro = load_macro_data()
+    print_log: list[str] = []
 
-    print("=== 금리차 계산 ===")
+    def emit(message: str) -> None:
+        print(message)
+        print_log.append(message)
+
+    emit("=== 금리차 계산 ===")
     rate_diffs = compute_rate_diffs(macro)
     for pair, info in rate_diffs.items():
-        print(f"{pair}: {info}")
+        emit(f"{pair}: {info}")
 
-    print("\n=== 환율 기술적 지표 계산 ===")
+    emit("\n=== 환율 기술적 지표 계산 ===")
     fx_technical = {}
     for pair, ticker in FX_TICKERS.items():
         fx_technical[pair] = compute_fx_technical(pair, ticker)
-        print(f"{pair}: {fx_technical[pair]}")
+        emit(f"{pair}: {fx_technical[pair]}")
 
-    print("\n=== 기타 매크로 지표 요약 (최신값 + 추세) ===")
+    emit("\n=== 기타 매크로 지표 요약 (최신값 + 추세) ===")
     other_summary = {}
     for source_key in ["fred", "ecos"]:
         for name, series in macro.get(source_key, {}).items():
@@ -243,19 +304,32 @@ def main():
     )
 
     for name, info in other_summary.items():
-        print(f"{name}: {info}")
+        emit(f"{name}: {info}")
+
+    weekly_feature_summary = build_weekly_feature_summary(BASE_DIR / "weekly_fx_features.csv")
+    emit("\n=== 주간 FX 피처 요약 ===")
+    if weekly_feature_summary.get("note"):
+        emit(weekly_feature_summary["note"])
+    else:
+        emit(f"latest_week: {weekly_feature_summary.get('latest_week')}")
+        for name, info in weekly_feature_summary.items():
+            if name in {"latest_week", "row_count", "note"}:
+                continue
+            emit(f"{name}: {info}")
 
     processed = {
         "computed_at": datetime.now().isoformat(),
         "rate_diffs": rate_diffs,
         "fx_technical": fx_technical,
         "other_indicators": other_summary,
+        "weekly_fx_features": weekly_feature_summary,
+        "print_log": print_log,
     }
 
     with OUTPUT_PATH.open("w", encoding="utf-8") as f:
         json.dump(processed, f, ensure_ascii=False, indent=2)
 
-    print(f"\n저장 완료 -> {OUTPUT_PATH.resolve()}")
+    emit(f"\n저장 완료 -> {OUTPUT_PATH.resolve()}")
 
 
 if __name__ == "__main__":
