@@ -1,5 +1,6 @@
 """
 터미널에서 `pip install streamlit pandas plotly` 명령어를 실행하세요.
+
 """
 
 
@@ -105,25 +106,7 @@ if st.button("AI 분석하기", use_container_width=True):
             macro_context
         )
 
-    for n in news:
 
-        st.container(border=True)
-
-        st.markdown(f"### 📰 {n['title']}")
-
-        c1, c2 = st.columns(2)
-
-        with c1:
-            st.metric("국가", n.get("country","-"))
-
-        with c2:
-            st.metric("카테고리", n.get("category","-"))
-
-        st.write(n["summary"])
-
-        st.caption(n.get("reason",""))
-
-        st.divider()
 
     with st.sidebar:
 
